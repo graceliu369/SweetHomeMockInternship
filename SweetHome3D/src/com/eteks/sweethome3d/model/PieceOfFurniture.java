@@ -53,6 +53,11 @@ public interface PieceOfFurniture {
   public abstract float getHeight();
 
   /**
+   * Returns the bounding-box volume (width times depth times height).
+   */
+  public abstract float getVolume();
+
+  /**
    * Returns the width of this piece of furniture.
    */
   public abstract float getWidth();
