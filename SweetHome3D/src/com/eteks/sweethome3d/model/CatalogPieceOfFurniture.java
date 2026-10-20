@@ -602,6 +602,13 @@ public class CatalogPieceOfFurniture implements Comparable<CatalogPieceOfFurnitu
   }
 
   /**
+   * Returns the bounding-box volume, calculated from the current dimensions.
+   */
+  public float getVolume() {
+    return getWidth() * getDepth() * getHeight();
+  }
+
+  /**
    * Returns the width of this piece of furniture.
    */
   public float getWidth() {
