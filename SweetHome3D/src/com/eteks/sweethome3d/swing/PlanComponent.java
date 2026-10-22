@@ -2012,6 +2012,10 @@ public class PlanComponent extends JComponent implements PlanView, Scrollable, P
       return NO_SUCH_PAGE;
     }
     Level selectedLevel = this.home.getSelectedLevel();
+    List<Selectable> selectedItems = new ArrayList<Selectable>(this.home.getSelectedItems());
+    boolean allLevelsSelection = this.home.isAllLevelsSelection();
+    Camera topCamera = this.home.getTopCamera().clone();
+    Camera observerCamera = this.home.getObserverCamera().clone();
     try {
       if (this.home.getLevels().isEmpty()) {
         return printSelectedLevel(g, pageFormat, pageIndex);
@@ -2032,6 +2036,12 @@ public class PlanComponent extends JComponent implements PlanView, Scrollable, P
       return NO_SUCH_PAGE;
     } finally {
       this.home.setSelectedLevel(selectedLevel);
+      // Level listeners may discard selected items and move either camera.
+      // Restore the cameras last, after the selection listeners have run too.
+      this.home.setAllLevelsSelection(allLevelsSelection);
+      this.home.setSelectedItems(selectedItems);
+      this.home.getTopCamera().setCamera(topCamera);
+      this.home.getObserverCamera().setCamera(observerCamera);
     }
   }
 

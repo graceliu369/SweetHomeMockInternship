@@ -29,8 +29,8 @@ public class AdditionalChecks {
       Level level = new Level("Level " + i, i * 250f, 10f, 240f);
       home.addLevel(level);
       Wall wall = new Wall(0, 0, 600, 0, 10, 240);
-      wall.setLevel(level);
       home.addWall(wall);
+      wall.setLevel(level);
     }
     home.setSelectedLevel(home.getLevels().get(2));
     return home;
@@ -107,6 +107,80 @@ public class AdditionalChecks {
     check(table.getModel().getValueAt(0, 0) == piece, "table sorts volume ascending");
     home.setFurnitureDescendingSorted(true);
     check(table.getModel().getValueAt(0, 0) == larger, "table sorts volume descending");
+  }
+  private static boolean sameCamera(Camera actual, Camera expected) {
+    return actual.getX() == expected.getX() && actual.getY() == expected.getY()
+        && actual.getZ() == expected.getZ() && actual.getYaw() == expected.getYaw()
+        && actual.getPitch() == expected.getPitch()
+        && actual.getFieldOfView() == expected.getFieldOfView();
+  }
+  private static void checkPrintUiState() throws Exception {
+    Home home = threeLevels();
+    DefaultUserPreferences uiPreferences = new DefaultUserPreferences();
+    uiPreferences.setLanguage("en");
+    uiPreferences.setAerialViewCenteredOnSelectionEnabled(true);
+    HomeController controller = new HomeController(home, uiPreferences, new SwingViewFactory() {
+      @Override public HomeView createHomeView(Home h, UserPreferences p, HomeController c) {
+        // Keep the real controllers/listeners while avoiding a native window in headless tests.
+        return (HomeView)java.lang.reflect.Proxy.newProxyInstance(HomeView.class.getClassLoader(),
+            new Class<?>[] {HomeView.class}, (proxy, method, arguments) -> {
+              if (method.getReturnType() == Boolean.TYPE) return false;
+              if (method.getReturnType() == java.util.List.class) return Collections.emptyList();
+              return null;
+            });
+      }
+    }, new FileContentManager(uiPreferences));
+    controller.getView();
+    controller.getHomeController3D();
+    Level selectedLevel = home.getSelectedLevel();
+    java.util.List<Wall> walls = new ArrayList<Wall>(home.getWalls());
+    java.util.List<Selectable> selectedItems = Arrays.<Selectable>asList(walls.get(2));
+    home.setSelectedItems(selectedItems);
+    // Going down from level 2 clamps this height to the minimum; returning to
+    // level 2 alone cannot undo that movement. The top camera may be moved by
+    // both level-visibility and selection listeners as well.
+    home.getObserverCamera().setZ(100);
+    home.getTopCamera().setX(123);
+    home.getTopCamera().setY(456);
+    home.getTopCamera().setZ(987);
+    Camera topCamera = home.getTopCamera().clone();
+    Camera observerCamera = home.getObserverCamera().clone();
+    PlanComponent plan = new PlanComponent(home, uiPreferences, controller.getPlanController());
+    Graphics2D graphics = new BufferedImage(800, 1000, BufferedImage.TYPE_INT_ARGB).createGraphics();
+    PageFormat format = HomePrintableComponent.getPageFormat(settings(null));
+    try {
+      check(plan.print(graphics, format, 0) == Printable.PAGE_EXISTS,
+          "printing succeeds with real home-controller level listeners");
+      check(home.getSelectedLevel() == selectedLevel && home.getSelectedItems().equals(selectedItems)
+          && !home.isAllLevelsSelection(), "printing restores selected objects as well as their level");
+      check(sameCamera(home.getTopCamera(), topCamera) && sameCamera(home.getObserverCamera(), observerCamera),
+          "printing restores both camera positions after non-reversible listener changes");
+      check(plan.print(graphics, format, 3) == Printable.NO_SUCH_PAGE,
+          "out-of-range print page remains absent with controller listeners");
+      check(home.getSelectedLevel() == selectedLevel && home.getSelectedItems().equals(selectedItems)
+          && sameCamera(home.getTopCamera(), topCamera) && sameCamera(home.getObserverCamera(), observerCamera),
+          "out-of-range printing restores objects, level, and both cameras");
+      PlanComponent failing = new PlanComponent(home, uiPreferences, controller.getPlanController()) {
+        @Override protected java.util.List<Selectable> getPaintedItems() {
+          throw new IllegalStateException("simulated rendering failure with controller listeners");
+        }
+      };
+      try {
+        failing.print(graphics, format, 0);
+        throw new AssertionError("controller-listener failure injection was not reached");
+      } catch (IllegalStateException expected) {
+        check(home.getSelectedLevel() == selectedLevel && home.getSelectedItems().equals(selectedItems)
+            && !home.isAllLevelsSelection() && sameCamera(home.getTopCamera(), topCamera)
+            && sameCamera(home.getObserverCamera(), observerCamera),
+            "rendering failure restores objects, selection mode, level, and both cameras");
+      }
+      home.setAllLevelsSelection(true);
+      selectedItems = Arrays.<Selectable>asList(walls.get(0), walls.get(2));
+      home.setSelectedItems(selectedItems);
+      plan.print(graphics, format, 1);
+      check(home.isAllLevelsSelection() && home.getSelectedItems().equals(selectedItems),
+          "printing preserves an existing selection across multiple levels");
+    } finally { graphics.dispose(); }
   }
   private static class FailingTable extends FurnitureTable {
     FailingTable(Home home) { super(home, PREFS); }
@@ -194,6 +268,7 @@ public class AdditionalChecks {
       try {
         checkDescriptionAndVolume();
         checkPlan();
+        checkPrintUiState();
         checkTableFailure();
         printSample(args[0]);
       } catch (Throwable ex) { failure[0] = ex; }
